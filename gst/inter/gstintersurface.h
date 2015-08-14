@@ -47,7 +47,8 @@ struct _GstInterSurface
 
   GstBuffer *video_buffer;
   GstBuffer *sub_buffer;
-  GstAdapter *audio_adapter;
+  GstBuffer *audio_buffer;
+  //GstAdapter *audio_adapter;
 };
 
 #define DEFAULT_AUDIO_BUFFER_TIME  (GST_SECOND)

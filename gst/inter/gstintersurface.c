@@ -28,6 +28,37 @@
 static GList *list;
 static GMutex mutex;
 
+void gst_inter_surface_push_audio_buffer(GstInterSurface *surface, GstBuffer* buffer) {
+  GST_INFO_OBJECT (interaudiosink,
+       "pull," name ",%" GST_TIME_FORMAT,
+       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (x))
+       );
+
+  g_mutex_lock (&surface->mutex);
+  if (surface->audio_buffer) {
+    gst_buffer_unref (surface->audio_buffer);
+  }
+  surface->audio_buffer = gst_buffer_ref (buffer);
+  surface->audio_timestamp = GST_BUFFER_TIMESTAMP (x);
+  g_mutex_unlock (&surface->mutex);
+}
+
+GstBuffer* gst_inter_surface_take_buffer(GstInterSurface *surface) {
+  g_mutex_lock (&surface->mutex);
+  GstBuffer* buffer = surface->audio_buffer;
+  surface->audio_buffer = 0;
+  if (!buffer) {
+    buffer = gst_buffer_new ();
+    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_GAP);
+  }
+  GST_INFO_OBJECT (interaudiosink,
+       "push," name ",%" GST_TIME_FORMAT,
+       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (x))
+       );
+  g_mutex_unlock (&surface->mutex);
+  return buffer;
+}
+
 GstInterSurface *
 gst_inter_surface_get (const char *name)
 {

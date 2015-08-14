@@ -47,6 +47,12 @@
 
 #include <string.h>
 
+#define PRINT_SAMPLE(name, x) \
+  GST_INFO_OBJECT (interaudiosrc, \
+       ":: src," name ",%" GST_TIME_FORMAT, \
+       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (x)) \
+       );
+
 GST_DEBUG_CATEGORY_STATIC (gst_inter_audio_src_debug_category);
 #define GST_CAT_DEFAULT gst_inter_audio_src_debug_category
 
@@ -338,6 +344,8 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
   GstCaps *caps;
   GstBuffer *buffer;
   guint n, bpf;
+  guint64 buffer_time;
+  guint64 buffer_samples;
   guint64 period_time;
   guint64 period_samples;
 
@@ -359,7 +367,14 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
   }
 
   bpf = interaudiosrc->surface->audio_info.bpf;
+
+  buffer_time = interaudiosrc->surface->audio_buffer_time;
   period_time = interaudiosrc->surface->audio_period_time;
+
+  buffer_samples =
+      gst_util_uint64_scale (buffer_time, interaudiosrc->info.rate,
+      GST_SECOND);
+  (void)buffer_samples;
   period_samples =
       gst_util_uint64_scale (period_time, interaudiosrc->info.rate, GST_SECOND);
 
@@ -373,6 +388,7 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
   if (n > 0) {
     buffer = gst_adapter_take_buffer (interaudiosrc->surface->audio_adapter,
         n * bpf);
+   PRINT_SAMPLE("surface,1", buffer);
   } else {
     buffer = gst_buffer_new ();
     GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_GAP);
@@ -390,6 +406,26 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
     }
   }
 
+/*
+  GST_INFO_OBJECT (interaudiosrc, 
+       "have "
+       " buffer {"
+         " ts=%" GST_TIME_FORMAT
+         " dur=%" GST_TIME_FORMAT
+         " off=%" G_GUINT64_FORMAT
+         " off_end=%" G_GUINT64_FORMAT
+       " }"
+       " buffer_samples=%" G_GUINT64_FORMAT
+       " buffer_duration=%" GST_TIME_FORMAT
+       " period_samples=%" G_GUINT64_FORMAT
+       " period_duration=%" GST_TIME_FORMAT,
+       GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buffer)),
+       GST_TIME_ARGS (GST_BUFFER_DURATION (buffer)),
+       GST_BUFFER_OFFSET_IS_VALID(buffer) ? GST_BUFFER_OFFSET (buffer) : 0,
+       GST_BUFFER_OFFSET_END_IS_VALID(buffer) ? GST_BUFFER_OFFSET_END (buffer) : 0,
+       buffer_samples, GST_TIME_ARGS (buffer_time),
+       period_samples, GST_TIME_ARGS (period_time));
+*/
   buffer = gst_buffer_make_writable (buffer);
 
   bpf = interaudiosrc->info.bpf;
