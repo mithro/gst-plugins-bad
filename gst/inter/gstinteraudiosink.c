@@ -181,21 +181,18 @@ static void
 gst_inter_audio_sink_get_times (GstBaseSink * sink, GstBuffer * buffer,
     GstClockTime * start, GstClockTime * end)
 {
-//  GstInterAudioSink *interaudiosink = GST_INTER_AUDIO_SINK (sink);
+  GstInterAudioSink *interaudiosink = GST_INTER_AUDIO_SINK (sink);
 
   if (GST_BUFFER_TIMESTAMP_IS_VALID (buffer)) {
     *start = GST_BUFFER_TIMESTAMP (buffer);
     if (GST_BUFFER_DURATION_IS_VALID (buffer)) {
       *end = *start + GST_BUFFER_DURATION (buffer);
     } else {
-      *end = -1;
-/*
       if (interaudiosink->info.rate > 0) {
         *end = *start +
             gst_util_uint64_scale_int (gst_buffer_get_size (buffer), GST_SECOND,
             interaudiosink->info.rate * interaudiosink->info.bpf);
       }
-*/
     }
   }
 }
@@ -279,8 +276,21 @@ gst_inter_audio_sink_render (GstBaseSink * sink, GstBuffer * buffer)
 {
   GstInterAudioSink *interaudiosink = GST_INTER_AUDIO_SINK (sink);
 
+//  buffer = gst_buffer_make_writable (buffer);
+//  GST_BUFFER_DURATION (buffer) = 
+//            gst_util_uint64_scale_int (gst_buffer_get_size (buffer),
+//            GST_SECOND, interaudiosink->info.rate * interaudiosink->info.bpf);
+
   GST_DEBUG_OBJECT (interaudiosink, "render ts %" GST_TIME_FORMAT,
       GST_TIME_ARGS (GST_BUFFER_PTS (buffer)));
+//  GST_DEBUG_OBJECT (
+//      interaudiosink, 
+//      "render ts %" GST_TIME_FORMAT 
+//      " duration %" GST_TIME_FORMAT,
+//      GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buffer)),
+//      GST_TIME_ARGS (GST_BUFFER_DURATION (buffer))
+//      );
+
 
   g_mutex_lock (&interaudiosink->surface->mutex);
   if (interaudiosink->surface->audio_buffer) {

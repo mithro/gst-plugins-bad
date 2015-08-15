@@ -281,7 +281,7 @@ gst_inter_audio_src_set_caps (GstBaseSrc * src, GstCaps * caps)
   gst_buffer_replace (&interaudiosrc->empty_buffer, NULL);
 
   bpf = interaudiosrc->info.bpf;
-  period_time = DEFAULT_AUDIO_BUFFER_TIME;
+  period_time = DEFAULT_AUDIO_PERIOD_TIME;
   period_samples =
       gst_util_uint64_scale (period_time, interaudiosrc->info.rate, GST_SECOND);
 
@@ -295,6 +295,9 @@ gst_inter_audio_src_set_caps (GstBaseSrc * src, GstCaps * caps)
 
   interaudiosrc->empty_buffer = gst_buffer_new ();
   gst_buffer_prepend_memory (interaudiosrc->empty_buffer, mem);
+  GST_BUFFER_DURATION (interaudiosrc->empty_buffer) = 
+              gst_util_uint64_scale_int (gst_buffer_get_size (interaudiosrc->empty_buffer),
+              GST_SECOND, interaudiosrc->info.rate * interaudiosrc->info.bpf);
 
   return TRUE;
 }
@@ -360,12 +363,10 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
 
   GstClockTime input_buffer_time;
   GstClockTimeDiff input_buffer_delta;
-  GstClockTimeDiff output_buffer_delta = DEFAULT_AUDIO_BUFFER_TIME;
+  GstClockTimeDiff output_buffer_delta;
 
   GST_DEBUG_OBJECT (interaudiosrc, "create");
-
-  gst_util_uint64_scale_int (gst_buffer_get_size (buffer),
-      GST_SECOND, interaudiosrc->info.rate * interaudiosrc->info.bpf);
+  output_buffer_delta = GST_BUFFER_DURATION (interaudiosrc->empty_buffer);
 
   g_mutex_lock (&interaudiosrc->surface->mutex);
  
@@ -434,10 +435,18 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
 
   GST_BUFFER_TIMESTAMP (buffer) =
     interaudiosrc->last_output_buffer_time + output_buffer_delta;
+  GST_BUFFER_DURATION (buffer) = 
+              gst_util_uint64_scale_int (gst_buffer_get_size (buffer),
+              GST_SECOND, interaudiosrc->info.rate * interaudiosrc->info.bpf);
 
   interaudiosrc->last_output_buffer_time = GST_BUFFER_TIMESTAMP(buffer);
-  GST_DEBUG_OBJECT (interaudiosrc, "create ts %" GST_TIME_FORMAT,
-      GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buffer)));
+  GST_DEBUG_OBJECT (
+      interaudiosrc, 
+      "create ts %" GST_TIME_FORMAT 
+      " duration %" GST_TIME_FORMAT,
+      GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buffer)),
+      GST_TIME_ARGS (GST_BUFFER_DURATION (buffer))
+      );
 
   *buf = buffer;
   return GST_FLOW_OK;
