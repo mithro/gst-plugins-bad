@@ -37,17 +37,14 @@ struct _GstInterSurface
 
   /* video */
   GstVideoInfo video_info;
-  int video_buffer_count;
 
   /* audio */
   GstAudioInfo audio_info;
-  guint64 audio_buffer_time;
-  guint64 audio_latency_time;
-  guint64 audio_period_time;
 
   GstBuffer *video_buffer;
   GstBuffer *sub_buffer;
-  GstAdapter *audio_adapter;
+  GstBuffer *audio_buffer;
+  //GstAdapter *audio_adapter;
 };
 
 #define DEFAULT_AUDIO_BUFFER_TIME  (GST_SECOND)

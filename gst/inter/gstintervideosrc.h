@@ -40,14 +40,13 @@ struct _GstInterVideoSrc
   GstBaseSrc base_intervideosrc;
 
   GstInterSurface *surface;
-
   char *channel;
   guint64 timeout;
 
   GstVideoInfo info;
-  GstBuffer *black_frame;
-  int n_frames;
-  GstClockTime timestamp_offset;
+  GstBuffer *empty_buffer;
+  GstClockTime last_input_buffer_time;
+  GstClockTime last_output_buffer_time;
 };
 
 struct _GstInterVideoSrcClass

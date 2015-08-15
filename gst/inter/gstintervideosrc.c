@@ -38,10 +38,13 @@
 #include "config.h"
 #endif
 
+#include "gstintervideosrc.h"
+
 #include <gst/gst.h>
 #include <gst/base/gstbasesrc.h>
 #include <gst/video/video.h>
-#include "gstintervideosrc.h"
+
+#include <stdlib.h>
 #include <string.h>
 
 GST_DEBUG_CATEGORY_STATIC (gst_inter_video_src_debug_category);
@@ -245,7 +248,7 @@ gst_inter_video_src_set_caps (GstBaseSrc * base, GstCaps * caps)
   }
 
   /* Create a black frame */
-  gst_buffer_replace (&intervideosrc->black_frame, NULL);
+  gst_buffer_replace (&intervideosrc->empty_buffer, NULL);
   gst_video_info_set_format (&black_info, GST_VIDEO_FORMAT_ARGB,
       intervideosrc->info.width, intervideosrc->info.height);
   black_info.fps_n = intervideosrc->info.fps_n;
@@ -261,7 +264,7 @@ gst_inter_video_src_set_caps (GstBaseSrc * base, GstCaps * caps)
   gst_video_frame_unmap (&src_frame);
   gst_video_frame_unmap (&dest_frame);
   gst_buffer_unref (src);
-  intervideosrc->black_frame = dest;
+  intervideosrc->empty_buffer = dest;
 
   return TRUE;
 }
@@ -270,13 +273,11 @@ static gboolean
 gst_inter_video_src_start (GstBaseSrc * src)
 {
   GstInterVideoSrc *intervideosrc = GST_INTER_VIDEO_SRC (src);
-
   GST_DEBUG_OBJECT (intervideosrc, "start");
 
   intervideosrc->surface = gst_inter_surface_get (intervideosrc->channel);
-  intervideosrc->timestamp_offset = 0;
-  intervideosrc->n_frames = 0;
-
+  intervideosrc->last_input_buffer_time = 0;
+  intervideosrc->last_output_buffer_time = 0;
   return TRUE;
 }
 
@@ -289,7 +290,7 @@ gst_inter_video_src_stop (GstBaseSrc * src)
 
   gst_inter_surface_unref (intervideosrc->surface);
   intervideosrc->surface = NULL;
-  gst_buffer_replace (&intervideosrc->black_frame, NULL);
+  gst_buffer_replace (&intervideosrc->empty_buffer, NULL);
 
   return TRUE;
 }
@@ -324,21 +325,22 @@ gst_inter_video_src_create (GstBaseSrc * src, guint64 offset, guint size,
     GstBuffer ** buf)
 {
   GstInterVideoSrc *intervideosrc = GST_INTER_VIDEO_SRC (src);
-  GstCaps *caps;
-  GstBuffer *buffer;
-  guint64 frames;
-  gboolean is_gap = FALSE;
+  GstCaps *caps = NULL;
+  GstBuffer *buffer = NULL;
+
+  GstClockTime input_buffer_time;
+  GstClockTimeDiff input_buffer_delta;
+  GstClockTimeDiff output_buffer_delta;
 
   GST_DEBUG_OBJECT (intervideosrc, "create");
 
-  caps = NULL;
-  buffer = NULL;
-
-  frames = gst_util_uint64_scale_ceil (intervideosrc->timeout,
-      GST_VIDEO_INFO_FPS_N (&intervideosrc->info),
-      GST_VIDEO_INFO_FPS_D (&intervideosrc->info) * GST_SECOND);
+  output_buffer_delta = gst_util_uint64_scale (1,
+      GST_VIDEO_INFO_FPS_D (&intervideosrc->info),
+      GST_VIDEO_INFO_FPS_N (&intervideosrc->info));
 
   g_mutex_lock (&intervideosrc->surface->mutex);
+ 
+  // Get new caps if needed
   if (intervideosrc->surface->video_info.finfo) {
     GstVideoInfo tmp_info = intervideosrc->surface->video_info;
 
@@ -352,34 +354,18 @@ gst_inter_video_src_create (GstBaseSrc * src, guint64 offset, guint size,
 
     if (!gst_video_info_is_equal (&tmp_info, &intervideosrc->info)) {
       caps = gst_video_info_to_caps (&tmp_info);
-      intervideosrc->timestamp_offset +=
-          gst_util_uint64_scale (GST_SECOND * intervideosrc->n_frames,
-          GST_VIDEO_INFO_FPS_D (&intervideosrc->info),
-          GST_VIDEO_INFO_FPS_N (&intervideosrc->info));
-      intervideosrc->n_frames = 0;
     }
   }
 
+  // Get the video buffer
   if (intervideosrc->surface->video_buffer) {
-    /* We have a buffer to push */
-    buffer = gst_buffer_ref (intervideosrc->surface->video_buffer);
-
-    /* Can only be true if timeout > 0 */
-    if (intervideosrc->surface->video_buffer_count == frames) {
-      gst_buffer_unref (intervideosrc->surface->video_buffer);
-      intervideosrc->surface->video_buffer = NULL;
-    }
+    buffer = intervideosrc->surface->video_buffer;
+    intervideosrc->surface->video_buffer = NULL;
   }
 
-  if (intervideosrc->surface->video_buffer_count != 0 &&
-      intervideosrc->surface->video_buffer_count != (frames + 1)) {
-    /* This is a repeat of the stored buffer or of a black frame */
-    is_gap = TRUE;
-  }
-
-  intervideosrc->surface->video_buffer_count++;
   g_mutex_unlock (&intervideosrc->surface->mutex);
 
+  // Renegotiate the caps if needed
   if (caps) {
     gboolean ret;
     GstStructure *s;
@@ -407,8 +393,6 @@ gst_inter_video_src_create (GstBaseSrc * src, guint64 offset, guint size,
 
     if (gst_caps_is_empty (negotiated_caps)) {
       GST_ERROR_OBJECT (src, "Failed to negotiate caps %" GST_PTR_FORMAT, caps);
-      if (buffer)
-        gst_buffer_unref (buffer);
       gst_caps_unref (caps);
       return GST_FLOW_NOT_NEGOTIATED;
     }
@@ -441,37 +425,46 @@ gst_inter_video_src_create (GstBaseSrc * src, guint64 offset, guint size,
     gst_caps_unref (negotiated_caps);
   }
 
-  if (buffer == NULL) {
+  if (!buffer) {
     GST_DEBUG_OBJECT (intervideosrc, "Creating black frame");
-    buffer = gst_buffer_copy (intervideosrc->black_frame);
+    buffer = gst_buffer_copy (intervideosrc->empty_buffer);
+    //GST_BUFFER_FLAG_GET (buffer, GST_BUFFER_FLAG_DISCONT);
+    GST_BUFFER_TIMESTAMP (buffer) = intervideosrc->last_output_buffer_time + output_buffer_delta;
   }
+
+  input_buffer_time = GST_BUFFER_TIMESTAMP (buffer);
+  input_buffer_delta = intervideosrc->last_input_buffer_time - input_buffer_time;
+  intervideosrc->last_input_buffer_time = input_buffer_time;
+
+  GST_DEBUG_OBJECT (
+      intervideosrc, 
+      " input time: %" GST_TIME_FORMAT
+      " input_delta: %" GST_TIME_FORMAT
+      " output_delta: %" GST_TIME_FORMAT,
+      GST_TIME_ARGS (input_buffer_time), 
+      GST_TIME_ARGS (input_buffer_delta),
+      GST_TIME_ARGS (output_buffer_delta));
 
   buffer = gst_buffer_make_writable (buffer);
 
-  if (is_gap)
-    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_GAP);
+  if (abs(input_buffer_delta) > (output_buffer_delta * 2)) {
+    if (GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_DISCONT)) {
+      // ???
+    }
 
-  GST_BUFFER_PTS (buffer) = intervideosrc->timestamp_offset +
-      gst_util_uint64_scale (GST_SECOND * intervideosrc->n_frames,
-      GST_VIDEO_INFO_FPS_D (&intervideosrc->info),
-      GST_VIDEO_INFO_FPS_N (&intervideosrc->info));
-  GST_BUFFER_DTS (buffer) = GST_CLOCK_TIME_NONE;
-  GST_DEBUG_OBJECT (intervideosrc, "create ts %" GST_TIME_FORMAT,
-      GST_TIME_ARGS (GST_BUFFER_PTS (buffer)));
-  GST_BUFFER_DURATION (buffer) = intervideosrc->timestamp_offset +
-      gst_util_uint64_scale (GST_SECOND * (intervideosrc->n_frames + 1),
-      GST_VIDEO_INFO_FPS_D (&intervideosrc->info),
-      GST_VIDEO_INFO_FPS_N (&intervideosrc->info)) - GST_BUFFER_PTS (buffer);
-  GST_BUFFER_OFFSET (buffer) = intervideosrc->n_frames;
-  GST_BUFFER_OFFSET_END (buffer) = -1;
-  GST_BUFFER_FLAG_UNSET (buffer, GST_BUFFER_FLAG_DISCONT);
-  if (intervideosrc->n_frames == 0) {
     GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_DISCONT);
+  } else {
+    output_buffer_delta = input_buffer_delta;
   }
-  intervideosrc->n_frames++;
+
+  GST_BUFFER_TIMESTAMP (buffer) =
+    intervideosrc->last_output_buffer_time + output_buffer_delta;
+
+  intervideosrc->last_output_buffer_time = GST_BUFFER_TIMESTAMP(buffer);
+  GST_DEBUG_OBJECT (intervideosrc, "create ts %" GST_TIME_FORMAT,
+      GST_TIME_ARGS (GST_BUFFER_TIMESTAMP (buffer)));
 
   *buf = buffer;
-
   return GST_FLOW_OK;
 }
 

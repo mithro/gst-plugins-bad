@@ -41,11 +41,12 @@ struct _GstInterAudioSrc
 
   GstInterSurface *surface;
   char *channel;
-
-  guint64 n_samples;
-  GstClockTime timestamp_offset;
-  GstAudioInfo info;
   guint64 buffer_time, latency_time, period_time;
+
+  GstAudioInfo info;
+  GstBuffer *empty_buffer;
+  GstClockTime last_input_buffer_time;
+  GstClockTime last_output_buffer_time;
 };
 
 struct _GstInterAudioSrcClass
