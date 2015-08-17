@@ -204,6 +204,7 @@ gst_inter_audio_sink_start (GstBaseSink * sink)
 
   GST_DEBUG_OBJECT (interaudiosink, "start");
 
+  interaudiosink->surface_sequence = 0;
   interaudiosink->surface = gst_inter_surface_get (interaudiosink->channel);
   g_mutex_lock (&interaudiosink->surface->mutex);
   memset (&interaudiosink->surface->audio_info, 0, sizeof (GstAudioInfo));
@@ -220,10 +221,10 @@ gst_inter_audio_sink_stop (GstBaseSink * sink)
   GST_DEBUG_OBJECT (interaudiosink, "stop");
 
   g_mutex_lock (&interaudiosink->surface->mutex);
-  if (interaudiosink->surface->audio_buffer) {
-    gst_buffer_unref (interaudiosink->surface->audio_buffer);
-  }
-  interaudiosink->surface->audio_buffer = NULL;
+  gst_inter_surface_audio_queue_flush(interaudiosink->surface);
+
+
+
   memset (&interaudiosink->surface->audio_info, 0, sizeof (GstAudioInfo));
   g_mutex_unlock (&interaudiosink->surface->mutex);
 
@@ -260,7 +261,7 @@ gst_inter_audio_sink_event (GstBaseSink * sink, GstEvent * event)
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_EOS:{
       g_mutex_lock (&interaudiosink->surface->mutex);
-      interaudiosink->surface->audio_buffer = NULL;
+      gst_inter_surface_audio_queue_flush(interaudiosink->surface);
       g_mutex_unlock (&interaudiosink->surface->mutex);
       break;
     }
@@ -293,10 +294,14 @@ gst_inter_audio_sink_render (GstBaseSink * sink, GstBuffer * buffer)
 
 
   g_mutex_lock (&interaudiosink->surface->mutex);
-  if (interaudiosink->surface->audio_buffer) {
-    gst_buffer_unref (interaudiosink->surface->audio_buffer);
+  if (!interaudiosink->surface_sequence) {
+    interaudiosink->surface_sequence = interaudiosink->surface->sequence;
+  } else if (interaudiosink->surface_sequence != interaudiosink->surface->sequence) {
+    g_mutex_unlock (&interaudiosink->surface->mutex);
+    return GST_FLOW_ERROR;
   }
-  interaudiosink->surface->audio_buffer = gst_buffer_ref (buffer);
+
+  gst_inter_surface_audio_queue_push(interaudiosink->surface, buffer);
   g_mutex_unlock (&interaudiosink->surface->mutex);
 
   return GST_FLOW_OK;

@@ -380,10 +380,9 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
   }
 
   // Get the audio buffer
-  if (interaudiosrc->surface->audio_buffer) {
-    buffer = interaudiosrc->surface->audio_buffer;
-    interaudiosrc->surface->audio_buffer = NULL;
-  }
+  buffer = gst_inter_surface_audio_queue_pop(interaudiosrc->surface);
+  if (!buffer)
+    interaudiosrc->surface->sequence++;
 
   g_mutex_unlock (&interaudiosrc->surface->mutex);
 
@@ -405,8 +404,22 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
     GST_BUFFER_TIMESTAMP (buffer) = interaudiosrc->last_output_buffer_time + output_buffer_delta;
   }
 
+  g_assert(GST_IS_BUFFER(buffer));
+
   input_buffer_time = GST_BUFFER_TIMESTAMP (buffer);
   input_buffer_delta = input_buffer_time - interaudiosrc->last_input_buffer_time;
+
+  buffer = gst_buffer_make_writable (buffer);
+
+  if (abs(input_buffer_delta) > (output_buffer_delta * 2)) {
+    if (GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_DISCONT)) {
+      // ???
+    }
+
+    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_DISCONT);
+  } else {
+    output_buffer_delta = input_buffer_delta;
+  }
 
   GST_DEBUG_OBJECT (
       interaudiosrc, 
@@ -420,18 +433,6 @@ gst_inter_audio_src_create (GstBaseSrc * src, guint64 offset, guint size,
       GST_TIME_ARGS (output_buffer_delta));
 
   interaudiosrc->last_input_buffer_time = input_buffer_time;
-
-  buffer = gst_buffer_make_writable (buffer);
-
-  if (abs(input_buffer_delta) > (output_buffer_delta * 2)) {
-    if (GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_DISCONT)) {
-      // ???
-    }
-
-    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_DISCONT);
-  } else {
-    output_buffer_delta = input_buffer_delta;
-  }
 
   GST_BUFFER_TIMESTAMP (buffer) =
     interaudiosrc->last_output_buffer_time + output_buffer_delta;

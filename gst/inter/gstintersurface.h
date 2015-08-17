@@ -20,7 +20,7 @@
 #ifndef _GST_INTER_SURFACE_H_
 #define _GST_INTER_SURFACE_H_
 
-#include <gst/base/gstadapter.h>
+#include <gst/base/gstdataqueue.h>
 #include <gst/audio/audio.h>
 #include <gst/video/video.h>
 
@@ -33,6 +33,8 @@ struct _GstInterSurface
   GMutex mutex;
   gint ref_count;
 
+  guint sequence;
+
   char *name;
 
   /* video */
@@ -43,8 +45,8 @@ struct _GstInterSurface
 
   GstBuffer *video_buffer;
   GstBuffer *sub_buffer;
-  GstBuffer *audio_buffer;
-  //GstAdapter *audio_adapter;
+  //GstBuffer *audio_buffer;
+  GstDataQueue *audio_buffer_queue;
 };
 
 #define DEFAULT_AUDIO_BUFFER_TIME  (GST_SECOND)
@@ -55,6 +57,16 @@ struct _GstInterSurface
 GstInterSurface * gst_inter_surface_get (const char *name);
 void gst_inter_surface_unref (GstInterSurface *surface);
 
+gboolean
+gst_inter_surface_audio_queue_full(GstDataQueue *queue,
+                                  guint visible,
+                                  guint bytes,
+                                  guint64 time,
+                                  gpointer checkdata);
+void gst_inter_surface_audio_queue_push (GstInterSurface * surface, GstBuffer * buffer);
+GstBuffer * gst_inter_surface_audio_queue_pop (GstInterSurface * surface);
+void gst_inter_surface_audio_queue_flush (GstInterSurface * surface);
+void gst_inter_surface_audio_queue_free (GstDataQueueItem * item);
 
 G_END_DECLS
 

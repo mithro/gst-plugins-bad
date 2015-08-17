@@ -361,6 +361,8 @@ gst_inter_video_src_create (GstBaseSrc * src, guint64 offset, guint size,
   if (intervideosrc->surface->video_buffer) {
     buffer = intervideosrc->surface->video_buffer;
     intervideosrc->surface->video_buffer = NULL;
+  } else {
+    intervideosrc->surface->sequence++;
   }
 
   g_mutex_unlock (&intervideosrc->surface->mutex);

@@ -38,6 +38,7 @@ struct _GstInterAudioSink
 {
   GstBaseSink base_interaudiosink;
 
+  guint surface_sequence;
   GstInterSurface *surface;
   char *channel;
 

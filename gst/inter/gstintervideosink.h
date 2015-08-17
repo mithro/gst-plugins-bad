@@ -38,6 +38,7 @@ struct _GstInterVideoSink
 {
   GstBaseSink base_intervideosink;
 
+  guint surface_sequence;
   GstInterSurface *surface;
   char *channel;
 
